@@ -1,0 +1,130 @@
+apiVersion: v1
+kind: Template
+metadata:
+  labels:
+    template: downshift
+    downshift: '1.0'
+
+objects:
+  - apiVersion: v1
+    kind: BuildConfig
+    metadata:
+      name: downshift
+      labels:
+        app: downshift
+    spec:
+      resources:
+        limits:
+          cpu: 500m
+          memory: 384Mi
+        requests:
+          cpu: 500m
+          memory: 384Mi
+      output:
+        to:
+          kind: ImageStreamTag
+          name: 'downshift:latest'
+      source:
+        type: Git
+        git:
+          uri: 'https://github.com/fridex/downshift'
+          ref: master
+      strategy:
+        type: Source
+        sourceStrategy:
+          from:
+            kind: ImageStreamTag
+            name: downshift-python-36-centos7:latest
+          env:
+            - name: ENABLE_PIPENV
+              value: '1'
+      triggers:
+        - type: ImageChange
+          imageChange: {}
+
+  - kind: ImageStream
+    apiVersion: v1
+    metadata:
+      labels:
+        app: downshift
+      name: downshift
+    spec:
+      name: latest
+      lookupPolicy:
+        local: true
+
+  - apiVersion: v1
+    kind: DeploymentConfig
+    metadata:
+      name:  downshift
+      labels:
+        app: downshift
+        name:  downshift
+    spec:
+      selector:
+        name: downshift
+      template:
+        metadata:
+          labels:
+            name: downshift
+        replicas: 1
+        spec:
+          restartPolicy: Always
+          serviceAccountName: build-trigger
+          containers:
+            - name: downshift
+              image: downshift
+              resources:
+                limits:
+                  memory: '96Mi'
+                  cpu: '125m'
+                requests:
+                  memory: '96Mi'
+                  cpu: '125m'
+      triggers:
+        - type: ConfigChange
+        - type: ImageChange
+          imageChangeParams:
+            automatic: true
+            containerNames: [downshift]
+            from:
+              kind: ImageStreamTag
+              name: 'downshift:latest'
+
+  - kind: ServiceAccount
+    apiVersion: v1
+    metadata:
+      name: build-trigger
+      labels:
+        app: downshift
+    automountServiceAccountToken: true
+  
+  - apiVersion: v1
+    kind: RoleBinding
+    metadata:
+      name: role-jobs-binding
+      labels:
+        app: downshift
+    roleRef:
+      kind: ClusterRole
+      name: edit
+    subjects:
+      - kind: ServiceAccount
+        name: build-trigger
+
+  - apiVersion: v1
+    kind: ImageStream
+    metadata:
+      name: downshift-python-36-centos7
+      labels:
+        app: downshift
+    spec:
+      lookupPolicy:
+        local: false
+      tags:
+        - from:
+            kind: DockerImage
+            name: registry.centos.org/centos/python-36-centos7
+          name: latest
+          referencePolicy:
+            type: Source
